@@ -1,43 +1,47 @@
 name: CI
+
 on:
   pull_request:
-    branches:
-      - master
+    branches: [master]
   push:
-    branches:
-      - master
+    branches: [master]
     tags: '*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }} - ${{ matrix.julia-arch }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        julia-version:
-          - "1.6"
-          - "1"
-        os:
-          - ubuntu-latest
-          - windows-latest
-        julia-arch:
-          - x64
-        exclude:
-          - os: macOS-latest
-            julia-arch: aarch64
-            julia-version: '1'
+        version:
+          - '1.6'  # lowest declared LTS in Project.toml
+          - 'lts'  # latest LTS
+          - '1'
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [x64]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
         with:
-          version: ${{ matrix.julia-version }}
-          arch: ${{ matrix.julia-arch }}
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v2
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-      - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v4
+      - uses: julia-actions/julia-buildpkg@latest
+        with:
+          project: ColorSchemes
+      - uses: julia-actions/julia-runtest@latest
+        with:
+          project: ColorSchemes
+      - uses: julia-actions/julia-processcoverage@latest
+        with:
+          directories: ColorSchemes/src
+      - uses: codecov/codecov-action@v5
         with:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -46,20 +50,16 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@latest
         with:
           version: '1'
+      - run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - run: |
           julia --project=docs -e '
-            using Pkg
-            Pkg.develop(PackageSpec(path=pwd()))
-            Pkg.instantiate()'
-      - run: |
-          julia --project=docs -e '
-            using Documenter: doctest
-            using ColorSchemes
-            doctest(ColorSchemes)' # change ColorSchemes to the name of your package
+            import Documenter, ColorSchemes
+            Documenter.doctest(joinpath(@__DIR__, "docs", "src"), [ColorSchemes])
+          '
       - run: julia --project=docs docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
